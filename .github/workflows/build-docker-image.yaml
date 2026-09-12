@@ -1,0 +1,177 @@
+name: Build and Publish Docker Image
+
+on: # yamllint disable-line rule:truthy
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Docker image target to build"
+        required: false
+        default: "immich-takeout-sync"
+        type: string
+      tag:
+        description: "Tag to publish (overrides dockerTools tag if specified)"
+        required: false
+        type: string
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            nix-system: x86_64-linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            nix-system: aarch64-linux
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache || true
+          sudo rm -rf /usr/share/swift || true
+          sudo rm -rf /usr/local/share/boost || true
+          sudo docker system prune -af --volumes || true
+          df -h
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            extra-experimental-features = configurable-impure-env fetch-tree flakes nix-command
+            access-tokens = github.com/dszakallas=${{ secrets.WORKFLOW_TOKEN }}
+            impure-env = NIX_DSZAKALLAS_GITHUB_PRIVATE_USERNAME=dszakallas NIX_DSZAKALLAS_GITHUB_PRIVATE_PASSWORD=${{ secrets.WORKFLOW_TOKEN }}
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: devenv
+
+      - name: Build Docker image with Nix
+        id: build
+        run: |
+          TARGET="${{ inputs.target }}"
+          if [ -z "${TARGET}" ]; then
+            TARGET="immich-takeout-sync"
+          fi
+          IMAGE_PATH=$(nix build .#dockerImages.${{ matrix.nix-system }}.${TARGET} --print-out-paths)
+          IMAGE_TAG=$(nix eval --raw .#dockerImages.${{ matrix.nix-system }}.${TARGET}.imageTag)
+          IMAGE_NAME=$(nix eval --raw .#dockerImages.${{ matrix.nix-system }}.${TARGET}.imageName)
+
+          mkdir -p output
+          cp "${IMAGE_PATH}" "output/image-${{ matrix.arch }}.tar.gz"
+
+          echo "${TARGET}" > output/target.txt
+          echo "${IMAGE_NAME}" > output/image_name.txt
+          echo "${IMAGE_TAG}" > output/image_tag.txt
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: output/
+          retention-days: 1
+
+  publish-multiarch:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download all image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Inspect downloaded artifacts
+        run: |
+          ls -la artifacts/
+          ls -la artifacts/image-amd64/
+          ls -la artifacts/image-arm64/
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load and push arch images by digest
+        id: push-arches
+        run: |
+          TARGET=$(cat artifacts/image-amd64/target.txt)
+          IMAGE_NAME=$(cat artifacts/image-amd64/image_name.txt)
+          IMAGE_TAG=$(cat artifacts/image-amd64/image_tag.txt)
+
+          REPO="ghcr.io/${{ github.repository_owner }}/${TARGET}"
+
+          # Load amd64 image and push temporary tag to obtain registry digest
+          docker load < artifacts/image-amd64/image-amd64.tar.gz
+          TMP_TAG_AMD64="${REPO}:tmp-amd64-${{ github.run_id }}-${{ github.run_attempt }}"
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${TMP_TAG_AMD64}"
+          docker push "${TMP_TAG_AMD64}"
+          DIGEST_AMD64=$(docker inspect --format '{{index .RepoDigests 0}}' "${TMP_TAG_AMD64}" | cut -d'@' -f2)
+
+          # Load arm64 image and push temporary tag to obtain registry digest
+          docker load < artifacts/image-arm64/image-arm64.tar.gz
+          TMP_TAG_ARM64="${REPO}:tmp-arm64-${{ github.run_id }}-${{ github.run_attempt }}"
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${TMP_TAG_ARM64}"
+          docker push "${TMP_TAG_ARM64}"
+          DIGEST_ARM64=$(docker inspect --format '{{index .RepoDigests 0}}' "${TMP_TAG_ARM64}" | cut -d'@' -f2)
+
+          AMD64_IMAGE_DIGEST="${REPO}@${DIGEST_AMD64}"
+          ARM64_IMAGE_DIGEST="${REPO}@${DIGEST_ARM64}"
+
+          echo "Pushed amd64 digest: ${AMD64_IMAGE_DIGEST}"
+          echo "Pushed arm64 digest: ${ARM64_IMAGE_DIGEST}"
+
+          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
+          echo "amd64_digest_ref=${AMD64_IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "arm64_digest_ref=${ARM64_IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "tmp_tag_amd64=${TMP_TAG_AMD64}" >> "$GITHUB_OUTPUT"
+          echo "tmp_tag_arm64=${TMP_TAG_ARM64}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push multiarch version manifest
+        run: |
+          TARGET="${{ steps.push-arches.outputs.target }}"
+          REPO="${{ steps.push-arches.outputs.repo }}"
+          AMD64_REF="${{ steps.push-arches.outputs.amd64_digest_ref }}"
+          ARM64_REF="${{ steps.push-arches.outputs.arm64_digest_ref }}"
+
+          # Resolve publish version tag
+          PUBLISH_TAG="${{ inputs.tag }}"
+          if [ -z "${PUBLISH_TAG}" ]; then
+            PUBLISH_TAG="${{ steps.push-arches.outputs.image_tag }}"
+          fi
+
+          TARGET_IMAGE_TAG="${REPO}:${PUBLISH_TAG}"
+          docker manifest create "${TARGET_IMAGE_TAG}" "${AMD64_REF}" "${ARM64_REF}"
+          docker manifest push "${TARGET_IMAGE_TAG}"
+          echo "Published multiarch image: ${TARGET_IMAGE_TAG}"
+
+      - name: Clean up temporary tags
+        if: always()
+        run: |
+          # Untag / delete temporary tags via GHCR API if token permits, or log cleanup
+          TMP_TAG_AMD64="tmp-amd64-${{ github.run_id }}-${{ github.run_attempt }}"
+          TMP_TAG_ARM64="tmp-arm64-${{ github.run_id }}-${{ github.run_attempt }}"
+          PACKAGE_NAME="${{ steps.push-arches.outputs.target }}"
+          OWNER="${{ github.repository_owner }}"
+
+          curl -s -X DELETE \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions" || true

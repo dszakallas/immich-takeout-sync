@@ -1,0 +1,11 @@
+takeout-sync
+immich-takeout-sync
+bin/
+*.sqlite*
+*.downloading
+google-oauth2-credentials.json
+.devenv*
+.data/
+result*
+.DS_Store
+.pre-commit-config.yaml
