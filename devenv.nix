@@ -10,6 +10,13 @@
     pkgs.jq
   ];
 
+  scripts.immich-takeout-sync.exec = ''
+    exec go run "$DEVENV_ROOT/main.go" "$@"
+  '';
+  scripts.takeout-sync.exec = ''
+    exec immich-takeout-sync "$@"
+  '';
+
   pre-commit.hooks = {
     gofmt.enable = true;
     govet.enable = true;
