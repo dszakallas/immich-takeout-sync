@@ -12,6 +12,9 @@ on: # yamllint disable-line rule:truthy
         description: "Tag to publish (overrides dockerTools tag if specified)"
         required: false
         type: string
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -142,7 +145,11 @@ jobs:
           # Resolve publish version tag
           PUBLISH_TAG="${{ inputs.tag }}"
           if [ -z "${PUBLISH_TAG}" ]; then
-            PUBLISH_TAG="${{ steps.push-arches.outputs.image_tag }}"
+            if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+              PUBLISH_TAG="${GITHUB_REF_NAME#v}"
+            else
+              PUBLISH_TAG="${{ steps.push-arches.outputs.image_tag }}"
+            fi
           fi
 
           TARGET_IMAGE_TAG="${REPO}:${PUBLISH_TAG}"
