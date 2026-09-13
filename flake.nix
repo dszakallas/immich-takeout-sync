@@ -36,7 +36,7 @@
 
         dockerImage = pkgs.dockerTools.buildLayeredImage {
           name = "immich-takeout-sync";
-          tag = immich-takeout-sync.version;
+          tag = "latest";
           contents = [
             immich-takeout-sync
             pkgs.immich-go
