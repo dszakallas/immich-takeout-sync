@@ -19,7 +19,7 @@
 
         immich-takeout-sync = pkgs.buildGoModule rec {
           pname = "immich-takeout-sync";
-          version = "0.1.0";
+          version = "latest";
           src = pkgs.lib.cleanSource ./.;
 
           vendorHash = "sha256-Spo2ckfftabsomFOVNSKb8Q8XYETtEMDJ+0Q8RIp2Ao=";
@@ -36,7 +36,7 @@
 
         dockerImage = pkgs.dockerTools.buildLayeredImage {
           name = "immich-takeout-sync";
-          tag = "latest";
+          tag = immich-takeout-sync.version;
           contents = [
             immich-takeout-sync
             pkgs.immich-go

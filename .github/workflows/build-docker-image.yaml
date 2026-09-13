@@ -98,8 +98,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load and push arch images by digest
-        id: push-arches
+      - name: Tag, push, and create multiarch manifest
         run: |
           TARGET=$(cat artifacts/image-amd64/target.txt)
           IMAGE_NAME=$(cat artifacts/image-amd64/image_name.txt)
@@ -107,66 +106,32 @@ jobs:
 
           REPO="ghcr.io/${{ github.repository_owner }}/${TARGET}"
 
-          # Load amd64 image and push temporary tag to obtain registry digest
-          docker load < artifacts/image-amd64/image-amd64.tar.gz
-          TMP_TAG_AMD64="${REPO}:tmp-amd64-${{ github.run_id }}-${{ github.run_attempt }}"
-          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${TMP_TAG_AMD64}"
-          docker push "${TMP_TAG_AMD64}"
-          DIGEST_AMD64=$(docker inspect --format '{{index .RepoDigests 0}}' "${TMP_TAG_AMD64}" | cut -d'@' -f2)
-
-          # Load arm64 image and push temporary tag to obtain registry digest
-          docker load < artifacts/image-arm64/image-arm64.tar.gz
-          TMP_TAG_ARM64="${REPO}:tmp-arm64-${{ github.run_id }}-${{ github.run_attempt }}"
-          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${TMP_TAG_ARM64}"
-          docker push "${TMP_TAG_ARM64}"
-          DIGEST_ARM64=$(docker inspect --format '{{index .RepoDigests 0}}' "${TMP_TAG_ARM64}" | cut -d'@' -f2)
-
-          AMD64_IMAGE_DIGEST="${REPO}@${DIGEST_AMD64}"
-          ARM64_IMAGE_DIGEST="${REPO}@${DIGEST_ARM64}"
-
-          echo "Pushed amd64 digest: ${AMD64_IMAGE_DIGEST}"
-          echo "Pushed arm64 digest: ${ARM64_IMAGE_DIGEST}"
-
-          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
-          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
-          echo "amd64_digest_ref=${AMD64_IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "arm64_digest_ref=${ARM64_IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "tmp_tag_amd64=${TMP_TAG_AMD64}" >> "$GITHUB_OUTPUT"
-          echo "tmp_tag_arm64=${TMP_TAG_ARM64}" >> "$GITHUB_OUTPUT"
-
-      - name: Create and push multiarch version manifest
-        run: |
-          TARGET="${{ steps.push-arches.outputs.target }}"
-          REPO="${{ steps.push-arches.outputs.repo }}"
-          AMD64_REF="${{ steps.push-arches.outputs.amd64_digest_ref }}"
-          ARM64_REF="${{ steps.push-arches.outputs.arm64_digest_ref }}"
-
           # Resolve publish version tag
           PUBLISH_TAG="${{ inputs.tag }}"
           if [ -z "${PUBLISH_TAG}" ]; then
             if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
               PUBLISH_TAG="${GITHUB_REF_NAME#v}"
             else
-              PUBLISH_TAG="${{ steps.push-arches.outputs.image_tag }}"
+              PUBLISH_TAG="${IMAGE_TAG}"
             fi
           fi
 
+          TAG_AMD64="${REPO}:${PUBLISH_TAG}-amd64"
+          TAG_ARM64="${REPO}:${PUBLISH_TAG}-arm64"
+
+          # Load and push amd64 image
+          docker load < artifacts/image-amd64/image-amd64.tar.gz
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${TAG_AMD64}"
+          docker push "${TAG_AMD64}"
+          DIGEST_AMD64=$(docker inspect --format '{{index .RepoDigests 0}}' "${TAG_AMD64}" | cut -d'@' -f2)
+
+          # Load and push arm64 image
+          docker load < artifacts/image-arm64/image-arm64.tar.gz
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${TAG_ARM64}"
+          docker push "${TAG_ARM64}"
+          DIGEST_ARM64=$(docker inspect --format '{{index .RepoDigests 0}}' "${TAG_ARM64}" | cut -d'@' -f2)
+
           TARGET_IMAGE_TAG="${REPO}:${PUBLISH_TAG}"
-          docker manifest create "${TARGET_IMAGE_TAG}" "${AMD64_REF}" "${ARM64_REF}"
+          docker manifest create "${TARGET_IMAGE_TAG}" "${REPO}@${DIGEST_AMD64}" "${REPO}@${DIGEST_ARM64}"
           docker manifest push "${TARGET_IMAGE_TAG}"
           echo "Published multiarch image: ${TARGET_IMAGE_TAG}"
-
-      - name: Clean up temporary tags
-        if: always()
-        run: |
-          # Untag / delete temporary tags via GHCR API if token permits, or log cleanup
-          TMP_TAG_AMD64="tmp-amd64-${{ github.run_id }}-${{ github.run_attempt }}"
-          TMP_TAG_ARM64="tmp-arm64-${{ github.run_id }}-${{ github.run_attempt }}"
-          PACKAGE_NAME="${{ steps.push-arches.outputs.target }}"
-          OWNER="${{ github.repository_owner }}"
-
-          curl -s -X DELETE \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions" || true
