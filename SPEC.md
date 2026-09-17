@@ -30,7 +30,7 @@ The system consists of five primary components coordinated through a durable wor
 |  |                    DBOS Workflow Orchestrator                     |  |
 |  |                                                                   |  |
 |  |  Step 1: Discover & Register Batches                              |  |
-|  |  Step 2: Phase 1 - Download & Extract Metadata Across Parts      |  |
+|  |  Step 2: Phase 1 - Download & Extract Metadata Across Parts       |  |
 |  |  Step 3: Phase 2 - Sequential Import & Immediate Eviction         |  |
 |  |  Step 4: Drive Lifecycle Management (Optional Trash/Delete)       |  |
 |  |  Step 5: Scratch Purge & Completion Recording                     |  |
