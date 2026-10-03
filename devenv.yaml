@@ -7,3 +7,9 @@ inputs:
         follows: nixpkgs
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
+  bikeshed:
+    url: github:dszakallas/bikeshed
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+

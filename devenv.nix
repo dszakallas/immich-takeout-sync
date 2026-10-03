@@ -1,4 +1,4 @@
-{ pkgs, lib, config, ... }:
+{ pkgs, lib, config, inputs, ... }:
 
 {
   languages.go.enable = true;
@@ -26,6 +26,62 @@
   enterTest = ''
     go test -v -race ./...
   '';
+
+  profiles.agents.module = {
+    imports = [
+      inputs.bikeshed.devenvModules.agents
+    ];
+
+    agents = {
+      skills = {
+        enable = true;
+        entries = {
+          cc-skills-golang = inputs.bikeshed.packages.${pkgs.system}.agentskills.cc-skills-golang;
+          dbos-golang = (inputs.bikeshed.lib.agents.mkSkill pkgs) {
+            name = "dbos-golang";
+            version = "2026-10-01";
+            src = pkgs.fetchFromGitHub {
+              owner = "dbos-inc";
+              repo = "agent-skills";
+              rev = "4cf09dab16b03b8b39162561dcfd47febca4ae6e";
+              hash = "sha256-qqLd9WabvpCUvAe3UfAMWZ2YfHCrZgTw4BdVzXpo/ro=";
+            };
+            include = [ "dbos-golang" ];
+          };
+        };
+      };
+
+      claude = {
+        enable = true;
+        linkSkills = true;
+      };
+
+      copilot = {
+        enable = true;
+        linkSkills = true;
+      };
+
+      gemini = {
+        enable = true;
+        linkSkills = true;
+      };
+
+      vscode = {
+        enable = true;
+        linkSkills = true;
+      };
+
+      opencode = {
+        enable = true;
+        linkSkills = true;
+      };
+
+      codex = {
+        enable = true;
+        linkSkills = true;
+      };
+    };
+  };
 
   profiles.dev.module = {
     scripts.immich-bootstrap.exec = ''

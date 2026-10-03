@@ -1,5 +1,27 @@
 {
   "nodes": {
+    "bikeshed": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "home-manager": "home-manager",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791042005,
+        "narHash": "sha256-XJwz7G7sLM9o/k35trrDCE6Qm4Kg2Lu0L/qZsQFg9bI=",
+        "owner": "dszakallas",
+        "repo": "bikeshed",
+        "rev": "cec9b40d3ce2c357adca4df48a455b10147998a8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "dszakallas",
+        "repo": "bikeshed",
+        "type": "github"
+      }
+    },
     "devenv": {
       "locked": {
         "dir": "src/modules",
@@ -33,6 +55,24 @@
         "type": "github"
       }
     },
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
     "git-hooks": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -51,6 +91,27 @@
       "original": {
         "owner": "cachix",
         "repo": "git-hooks.nix",
+        "type": "github"
+      }
+    },
+    "home-manager": {
+      "inputs": {
+        "nixpkgs": [
+          "bikeshed",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1780099287,
+        "narHash": "sha256-efIPwVGtIWIjWcznhaop6XN6HxnOL8800hF6CBNvlqQ=",
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "7d8127d308c3fb9664f7e643eec944be74ebb37d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "home-manager",
         "type": "github"
       }
     },
@@ -92,9 +153,25 @@
     },
     "root": {
       "inputs": {
+        "bikeshed": "bikeshed",
         "devenv": "devenv",
         "git-hooks": "git-hooks",
         "nixpkgs": "nixpkgs"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
       }
     }
   },

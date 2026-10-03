@@ -9,3 +9,15 @@ google-oauth2-credentials.json
 result*
 .DS_Store
 .pre-commit-config.yaml
+
+# Generated agent & MCP files
+.mcp.json
+.agents/
+.claude/
+.codex/
+.copilot/
+.gemini/
+.opencode/
+opencode.json
+.antigravitycli
+
