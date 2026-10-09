@@ -2,6 +2,8 @@ takeout-sync
 immich-takeout-sync
 bin/
 *.sqlite*
+*.db
+scratch/
 *.downloading
 google-oauth2-credentials.json
 .devenv*

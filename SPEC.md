@@ -30,10 +30,12 @@ The system consists of five primary components coordinated through a durable wor
 |  |                    DBOS Workflow Orchestrator                     |  |
 |  |                                                                   |  |
 |  |  Step 1: Discover & Register Batches                              |  |
-|  |  Step 2: Phase 1 - Download & Extract Metadata Across Parts       |  |
-|  |  Step 3: Phase 2 - Sequential Import & Immediate Eviction         |  |
-|  |  Step 4: Drive Lifecycle Management (Optional Trash/Delete)       |  |
-|  |  Step 5: Scratch Purge & Completion Recording                     |  |
+|  |  Step 2: Phase 1 - Incremental Metadata Slice Extraction & DBOS Tx|  |
+|  |  Step 3: Assemble Consolidated Metadata Directory                 |  |
+|  |  Step 4: Phase 2 - Granular Per-Part Ingestion with Lazy Restore   |  |
+|  |  Step 5: Drive Lifecycle Management (Optional Trash/Delete)       |  |
+|  |  Step 6: Local Scratch Storage Purge                              |  |
+|  |  Step 7: Purge Metadata Slices & Record Completion Transaction     |  |
 |  +-----------------------------------+-------------------------------+  |
 |                                      |                                  |
 |         +----------------------------+----------------------------+     |
@@ -72,22 +74,25 @@ Files sharing the same ISO 8601 timestamp prefix belong to the same export batch
 
 Large Takeout archives (e.g. 100+ GB) can easily exceed local scratch volume capacity. The service enforces a bounded two-phase processing model.
 
-### Phase 1: Metadata pre-extraction pass
+### Phase 1: Incremental metadata pre-extraction pass
 
 Google Photos Takeout splits photos and their associated JSON sidecars arbitrarily across archive parts. A photo in `part-005.zip` may have its `.supplemental-metadata.json` sidecar located in `part-001.zip`.
 
-1. The service iterates through each archive file in the batch.
+1. The service iterates through each archive file in the batch as an independent DBOS step (`ExtractMetadataSlice-<batchID>-<partNum>`).
 2. If the zip is not present locally, it is streamed from Google Drive into `<scratch>/<batchID>/zips/<filename>`.
-3. The zip archive is opened without full decompression, and all `*.json` files (metadata sidecars and album metadata) are extracted into `<scratch>/<batchID>/metadata/Takeout/Google Photos/`.
+3. The zip archive is opened without full decompression, and all `*.json` files (metadata sidecars and album metadata) are extracted directly into an in-memory `.tar.gz` metadata slice.
 4. If disk space exceeds a configurable high watermark (default: 90% utilization), already-extracted zips are evicted from the local cache to free space for remaining parts.
+5. Each metadata slice is checkpointed individually into the database in the `batch_metadata_slices` table via a DBOS transaction (`SaveMetadataSlice-<batchID>-<partNum>`). If extraction is interrupted midway through a multi-part batch, already-extracted parts are preserved and skipped upon restart.
+6. Once all slices are checkpointed, the workflow executes `AssembleMetadata-<batchID>`, which unpacks all slices into `<scratch>/<batchID>/metadata/` on disk and calculates the exact consolidated metadata size.
 
-### Phase 2: Sequential import pass
+### Phase 2: Granular per-part sequential import pass
 
-Once all JSON sidecars for the entire batch are extracted into the shared metadata directory, asset import begins:
+Once all JSON sidecars for the entire batch are extracted and durably persisted, asset import executes as granular per-part DBOS steps (`ImportPart-<batchID>-<partNum>`):
 
-1. The workflow iterates sequentially through each archive part (`part-001`, `part-002`, ..., `part-NNN`).
-2. At most **one** zip archive is maintained on disk for ingestion. If the zip was evicted during Phase 1, it is re-downloaded.
-3. `immich-go` is executed pointing to both the shared metadata directory and the single archive part:
+1. The workflow iterates sequentially through each archive part (`part-001`, `part-002`, ..., `part-NNN`), executing each part as an independent DBOS step.
+2. **Resumption & metadata availability guarantee**: At the start of each part step, the workflow checks if the local metadata directory exists and contains files. If the process was restarted in a new container or the scratch disk was cleared, the step lazily restores and extracts the metadata slices from `batch_metadata_slices` before proceeding.
+3. At most **one** zip archive is maintained on disk for ingestion. If the zip was evicted during Phase 1, it is re-downloaded.
+4. `immich-go` is executed pointing to both the metadata directory and the single archive part:
    ```bash
    immich-go upload from-google-photos \
      --server="http://immich:2283" \
@@ -101,19 +106,32 @@ Once all JSON sidecars for the entire batch are extracted into the shared metada
      "<scratch>/<batchID>/metadata" \
      "<scratch>/<batchID>/zips/<part>.zip"
    ```
-4. `immich-go` reads sidecars from the shared metadata directory to properly assign album associations, descriptions, geolocation, and timestamps to the assets inside the current zip part.
-5. Immediately after the part finishes ingestion, the zip file is removed from disk to reclaim storage space before proceeding to the next part.
+5. `immich-go` reads sidecars from the metadata directory to properly assign album associations, descriptions, geolocation, and timestamps to the assets inside the current zip part.
+6. Immediately after the part finishes ingestion, the zip file is removed from disk to reclaim storage space before proceeding to the next part.
+7. Once all parts and drive lifecycle steps succeed, local scratch files are purged (`CleanupScratch-<batchID>`) and durable metadata slices are deleted from `batch_metadata_slices` (`DeleteMetadataSlices-<batchID>`) via DBOS transaction, leaving zero residual storage footprint.
 
 ## Resumable Downloads
 
 To handle network interruptions and multi-gigabyte files reliably:
 
-- Downloads inspect existing partial files (`.tmp` extension) and retrieve the current size.
+- Downloads inspect existing partial files (`.downloading` extension) and retrieve the current size.
 - The HTTP request sets `Range: bytes=<offset>-` to resume from the last byte.
 - If the server returns HTTP 206 (Partial Content), streaming appends to the existing file.
 - If the server returns HTTP 200, the partial file is truncated and restarted from offset 0.
 - Checksums: To verify MD5 integrity on resumed downloads without re-downloading, existing file bytes are streamed through the MD5 hasher before appending newly received bytes.
 - Progress tracking resets consecutive failure counts to zero whenever forward byte progress is made during an attempt, preventing retry exhaustion on slow or flaky links.
+
+## DBOS Workflow & Transaction Semantics
+
+The synchronization pipeline executes inside durable DBOS workflows (`SyncPipelineWorkflow`) governed by the following design principles:
+
+1. **Transactional Mutations**: All application database mutations (`export_batches`, `batch_files`, `batch_metadata_slices`, `batch_metadata_bundles`) execute inside `dbos.RunAsTransaction` blocks rather than raw `dbos.RunAsStep` operations, guaranteeing atomicity and automatic rollback upon error.
+2. **Metrics Emission Inside Steps**: Prometheus metrics (counters, gauges, histograms) are recorded exclusively inside step execution bodies or dedicated transaction steps, preventing duplicate or ghost metric increments when steps are replayed during workflow recovery.
+3. **Deterministic Timers**: Batch timing starts with a checkpointed `BatchStart-<batchID>` step that durably records `time.Now()`, ensuring that resumed workflows calculate execution durations deterministically.
+4. **Crash-Resilience & Re-entrant Execution**: In the event of process restart, container eviction, or network interruptions:
+   - Previously completed metadata slices and imported parts are recognized as completed in DBOS and skipped.
+   - If the scratch disk was cleared, `ensureMetadataOnDisk` reconstructs the required metadata directory from durable `batch_metadata_slices` before invoking `immich-go`.
+   - Partial file downloads automatically resume from their last byte position.
 
 ## Fault-Tolerant Asset Error Handling
 
@@ -166,16 +184,41 @@ Tracks individual archive parts within each batch:
 
 ```sql
 CREATE TABLE batch_files (
-    file_id TEXT PRIMARY KEY,
+    drive_file_id TEXT PRIMARY KEY,
     batch_id TEXT NOT NULL REFERENCES export_batches(batch_id),
-    filename TEXT NOT NULL,
-    part_number INTEGER NOT NULL,
-    size_bytes BIGINT NOT NULL,
-    md5_checksum TEXT,
-    status TEXT NOT NULL,          -- PENDING, DOWNLOADED, EXTRACTED, IMPORTED, DELETED
-    drive_trashed BOOLEAN DEFAULT FALSE,
+    file_name TEXT NOT NULL,
+    file_size BIGINT NOT NULL,
+    md5_checksum TEXT NOT NULL,
+    is_downloaded BOOLEAN DEFAULT FALSE,
+    is_trashed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### `batch_metadata_bundles`
+
+Temporarily holds compressed `.tar.gz` metadata bundles for active batches, guaranteeing metadata sidecar availability during resumed part executions regardless of local scratch disk eviction:
+
+```sql
+CREATE TABLE batch_metadata_bundles (
+    batch_id TEXT PRIMARY KEY REFERENCES export_batches(batch_id),
+    bundle_data BYTEA NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### `batch_metadata_slices`
+
+Temporarily holds compressed `.tar.gz` metadata slices checkpointed per archive part, guaranteeing incremental resumption during extraction and metadata sidecar availability during resumed part executions:
+
+```sql
+CREATE TABLE batch_metadata_slices (
+    batch_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    slice_data BYTEA NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (batch_id, file_id)
 );
 ```
 
