@@ -19,11 +19,11 @@ Automated pipeline for synchronizing Google Photos Takeout archives from Google 
 If using a personal Google Drive account, create a **Desktop App** OAuth client in Google Cloud Console, then run:
 
 ```bash
-takeout-sync auth login --client-id="<CLIENT_ID>" --client-secret="<CLIENT_SECRET>" -o google-oauth2-credentials.json
+takeout-sync auth login --client-id="<CLIENT_ID>" --client-secret="<CLIENT_SECRET>"
 ```
 
-This launches a local listener, prompts you to sign in with Google, and writes the refresh token JSON configuration.
-If `google-oauth2-credentials.json` (or an existing credentials file specified by `-c` / `--credentials-file` or `-o`) already exists, `takeout-sync auth login` will automatically reuse the client ID and secret.
+This launches a local listener, prompts you to sign in with Google, and writes the refresh token JSON configuration to `$XDG_CONFIG_HOME/immich-takeout-sync/creds.json` (or `~/.config/immich-takeout-sync/creds.json`) by default.
+If credentials already exist (in the default location or specified by `-c` / `--credentials-file` or `-o`), `takeout-sync auth login` will automatically reuse the client ID and secret.
 
 ### Synchronization
 
@@ -31,7 +31,7 @@ If `google-oauth2-credentials.json` (or an existing credentials file specified b
 takeout-sync sync
 ```
 
-`takeout-sync sync` automatically reads `google-oauth2-credentials.json` if it exists in the working directory. You can also specify an explicit credentials file using the `--credentials-file` (`-c`) flag or the `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
+`takeout-sync sync` automatically reads `$XDG_CONFIG_HOME/immich-takeout-sync/creds.json` (or `~/.config/immich-takeout-sync/creds.json`) if it exists. You can also specify an explicit credentials file using the `--credentials-file` (`-c`) flag or the `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
 
 ### Environment variables
 
@@ -43,5 +43,5 @@ takeout-sync sync
 | `DBOS_DATABASE_URL` | Database connection URL supported by DBOS (e.g. SQLite, PostgreSQL) | `sqlite:/data/state.db` |
 | `SCRATCH_DIR` | Temporary download storage path | `/scratch` |
 | `GOOGLE_CREDENTIALS_JSON` | Service Account JSON or OAuth2 token JSON | - |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to credentials JSON (defaults to `google-oauth2-credentials.json` if present) | - |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to credentials JSON (defaults to `$XDG_CONFIG_HOME/immich-takeout-sync/creds.json` if present) | - |
 | `DRY_RUN` | If `true`, simulates upload and trashing | `false` |

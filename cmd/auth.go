@@ -80,7 +80,10 @@ Use this file in Kubernetes Secret (or with SOPS) to authenticate takeout-sync w
 				credentialsFile,
 				outputFile,
 				os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
-				config.DefaultCredentialsFile,
+				config.DefaultCredentialsPath(),
+				filepath.Join(config.XDGConfigHome(), "takeout-sync", config.DefaultCredentialsFileName),
+				"google-oauth2-credentials.json",
+				"creds.json",
 			}
 			for _, candidate := range candidateFiles {
 				if candidate == "" {
@@ -185,6 +188,11 @@ Use this file in Kubernetes Secret (or with SOPS) to authenticate takeout-sync w
 
 		if outputFile != "" {
 			cleanedOut := filepath.Clean(outputFile)
+			dir := filepath.Dir(cleanedOut)
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				return fmt.Errorf("creating directory %s: %w", dir, err)
+			}
+			// #nosec G306 -- credentials file contains secrets and must be restricted to 0600
 			if err := os.WriteFile(cleanedOut, data, 0600); err != nil {
 				return fmt.Errorf("writing output file: %w", err)
 			}
@@ -201,7 +209,7 @@ Use this file in Kubernetes Secret (or with SOPS) to authenticate takeout-sync w
 func init() {
 	loginCmd.Flags().StringVar(&clientID, "client-id", "", "Google OAuth2 Client ID")
 	loginCmd.Flags().StringVar(&clientSecret, "client-secret", "", "Google OAuth2 Client Secret")
-	loginCmd.Flags().StringVarP(&outputFile, "output", "o", "google-oauth2-credentials.json", "Output file path for generated JSON credentials")
+	loginCmd.Flags().StringVarP(&outputFile, "output", "o", config.DefaultCredentialsPath(), "Output file path for generated JSON credentials")
 	loginCmd.Flags().IntVar(&authPort, "port", 8085, "Local HTTP server port for OAuth callback")
 
 	authCmd.AddCommand(loginCmd)

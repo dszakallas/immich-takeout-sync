@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // Config contains runtime configuration for takeout-sync.
@@ -60,16 +61,53 @@ type Config struct {
 	DryRun bool
 }
 
-// DefaultCredentialsFile is the default credentials file written by auth login and read by takeout-sync.
+// AppName is the application identifier used for XDG configuration paths and workflow identification.
+const AppName = "immich-takeout-sync"
+
+// DefaultCredentialsFileName is the standard file name for saved OAuth2 credentials.
 // #nosec G101 -- default credentials file name, not a secret
-const DefaultCredentialsFile = "google-oauth2-credentials.json"
+const DefaultCredentialsFileName = "creds.json"
+
+// XDGConfigHome returns the base XDG configuration directory ($XDG_CONFIG_HOME or ~/.config).
+func XDGConfigHome() string {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".config")
+}
+
+// DefaultCredentialsPath returns the standard path to the credentials file:
+// xdg_config_home/app_name/creds.json.
+func DefaultCredentialsPath() string {
+	base := XDGConfigHome()
+	if base == "" {
+		return DefaultCredentialsFileName
+	}
+	return filepath.Join(base, AppName, DefaultCredentialsFileName)
+}
 
 // LoadFromEnv loads configuration from environment variables with sensible defaults.
 func LoadFromEnv() (*Config, error) {
 	credsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	if credsFile == "" {
-		if _, err := os.Stat(DefaultCredentialsFile); err == nil {
-			credsFile = DefaultCredentialsFile
+		candidates := []string{
+			DefaultCredentialsPath(),
+			filepath.Join(XDGConfigHome(), "takeout-sync", DefaultCredentialsFileName),
+			"google-oauth2-credentials.json",
+			"creds.json",
+		}
+		for _, cand := range candidates {
+			if cand == "" {
+				continue
+			}
+			if _, err := os.Stat(cand); err == nil {
+				credsFile = cand
+				break
+			}
 		}
 	}
 
