@@ -50,6 +50,7 @@ func TestTarGzRoundTrip(t *testing.T) {
 
 	// Verify files restored
 	restoredFile1 := filepath.Join(tempDst, "root.json")
+	// #nosec G304 -- test file path in tempDir
 	content1, err := os.ReadFile(restoredFile1)
 	if err != nil {
 		t.Fatalf("failed to read restored file1: %v", err)
@@ -59,6 +60,7 @@ func TestTarGzRoundTrip(t *testing.T) {
 	}
 
 	restoredFile2 := filepath.Join(tempDst, "Takeout", "Google Photos", "Album1", "photo.jpg.json")
+	// #nosec G304 -- test file path in tempDir
 	content2, err := os.ReadFile(restoredFile2)
 	if err != nil {
 		t.Fatalf("failed to read restored file2: %v", err)
@@ -101,7 +103,9 @@ func TestInitSchemaWithMetadataBundles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open sqlite in-memory: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		_ = db.Close()
+	}()
 
 	ctx := context.Background()
 	if err := initSchema(ctx, db); err != nil {
@@ -126,6 +130,7 @@ func TestExtractJSONSidecarsToTarGzAndAssembly(t *testing.T) {
 
 	// Helper to create a zip file
 	createZip := func(p string, files map[string]string) {
+		// #nosec G304 -- test file path in tempDir
 		f, err := os.Create(p)
 		if err != nil {
 			t.Fatalf("failed to create zip file: %v", err)
@@ -173,7 +178,9 @@ func TestExtractJSONSidecarsToTarGzAndAssembly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		_ = db.Close()
+	}()
 
 	ctx := context.Background()
 	if err := initSchema(ctx, db); err != nil {

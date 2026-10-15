@@ -245,7 +245,7 @@ func (o *Orchestrator) SyncPipelineWorkflow(wCtx dbos.Context, folderID string) 
 		slog.Info("Starting processing for batch", "batchID", b.ID, "parts", len(b.Files), "totalBytes", b.TotalBytes)
 
 		// Checkpoint batch start time in a step for deterministic duration calculation
-		batchStartTime, err := dbos.RunAsStep(wCtx, func(ctx context.Context) (time.Time, error) {
+		batchStartTime, err := dbos.RunAsStep(wCtx, func(_ context.Context) (time.Time, error) {
 			return time.Now(), nil
 		}, dbos.WithStepName("BatchStart-"+b.ID))
 		if err != nil {
@@ -464,7 +464,7 @@ func (o *Orchestrator) SyncPipelineWorkflow(wCtx dbos.Context, folderID string) 
 		}
 
 		// Record batch completion metrics inside a step (Recommendation 2.2)
-		_, err = dbos.RunAsStep(wCtx, func(ctx context.Context) (bool, error) {
+		_, err = dbos.RunAsStep(wCtx, func(_ context.Context) (bool, error) {
 			if o.metrics != nil {
 				o.metrics.RecordBatchCompleted(b.ID, time.Since(batchStartTime))
 			}
@@ -568,7 +568,9 @@ func (o *Orchestrator) assembleMetadataSlices(ctx context.Context, batchID strin
 	if err != nil {
 		return 0, 0, fmt.Errorf("querying metadata slices for batch %s: %w", batchID, err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	totalSlices := 0
 	for rows.Next() {
@@ -604,23 +606,6 @@ func (o *Orchestrator) assembleMetadataSlices(ctx context.Context, batchID strin
 	return totalBytes, fileCount, nil
 }
 
-func (o *Orchestrator) saveMetadataBundle(wCtx dbos.Context, batchID string, bundleData []byte, stepName string) error {
-	_, err := dbos.RunAsTransaction(wCtx, o.ds, func(ctx context.Context, tx dbos.Tx) (bool, error) {
-		query := `
-		INSERT INTO batch_metadata_bundles (batch_id, bundle_data, created_at)
-		VALUES ($1, $2, CURRENT_TIMESTAMP)
-		ON CONFLICT(batch_id) DO UPDATE SET
-			bundle_data = excluded.bundle_data,
-			created_at = CURRENT_TIMESTAMP;
-		`
-		if _, err := tx.Exec(ctx, query, batchID, bundleData); err != nil {
-			return false, fmt.Errorf("saving metadata bundle: %w", err)
-		}
-		return true, nil
-	}, dbos.WithStepName(stepName))
-	return err
-}
-
 func (o *Orchestrator) deleteMetadataBundle(wCtx dbos.Context, batchID string, stepName string) error {
 	_, err := dbos.RunAsTransaction(wCtx, o.ds, func(ctx context.Context, tx dbos.Tx) (bool, error) {
 		if _, err := tx.Exec(ctx, "DELETE FROM batch_metadata_bundles WHERE batch_id = $1", batchID); err != nil {
@@ -643,11 +628,19 @@ func (o *Orchestrator) ensureMetadataOnDisk(ctx context.Context, batchID string,
 }
 
 func createTarGz(sourceDir string) ([]byte, error) {
+	root, err := os.OpenRoot(sourceDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening root directory %s: %w", sourceDir, err)
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 
-	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -656,24 +649,29 @@ func createTarGz(sourceDir string) ([]byte, error) {
 		}
 		relPath, err := filepath.Rel(sourceDir, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("getting relative path for %s: %w", path, err)
 		}
 		header, err := tar.FileInfoHeader(info, "")
 		if err != nil {
-			return err
+			return fmt.Errorf("creating tar header for %s: %w", relPath, err)
 		}
 		header.Name = filepath.ToSlash(relPath)
 		if err := tw.WriteHeader(header); err != nil {
-			return err
+			return fmt.Errorf("writing tar header for %s: %w", relPath, err)
 		}
-		// #nosec G304 -- source path is within validated sourceDir
-		file, err := os.Open(path)
+		file, err := root.Open(relPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("opening file %s in root: %w", relPath, err)
 		}
-		defer file.Close()
-		_, err = io.Copy(tw, file)
-		return err
+		_, cpErr := io.Copy(tw, file)
+		closeErr := file.Close()
+		if cpErr != nil {
+			return fmt.Errorf("copying %s to archive: %w", relPath, cpErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("closing %s: %w", relPath, closeErr)
+		}
+		return nil
 	})
 	if err != nil {
 		_ = tw.Close()
@@ -682,23 +680,25 @@ func createTarGz(sourceDir string) ([]byte, error) {
 	}
 	if err := tw.Close(); err != nil {
 		_ = gw.Close()
-		return nil, err
+		return nil, fmt.Errorf("closing tar writer: %w", err)
 	}
 	if err := gw.Close(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("closing gzip writer: %w", err)
 	}
 	return buf.Bytes(), nil
 }
 
 func extractTarGz(data []byte, destDir string) error {
 	if err := os.MkdirAll(destDir, 0750); err != nil {
-		return err
+		return fmt.Errorf("creating destination directory %s: %w", destDir, err)
 	}
 	gr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("creating gzip reader: %w", err)
 	}
-	defer gr.Close()
+	defer func() {
+		_ = gr.Close()
+	}()
 
 	tr := tar.NewReader(gr)
 	for {
@@ -707,7 +707,7 @@ func extractTarGz(data []byte, destDir string) error {
 			break
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("reading tar header: %w", err)
 		}
 		cleanName := filepath.Clean(header.Name)
 		target := filepath.Join(destDir, cleanName)
@@ -719,24 +719,24 @@ func extractTarGz(data []byte, destDir string) error {
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0750); err != nil {
-				return err
+				return fmt.Errorf("creating directory %s: %w", target, err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0750); err != nil {
-				return err
+				return fmt.Errorf("creating parent directory for %s: %w", target, err)
 			}
 			// #nosec G304 -- destination path validated above
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, header.FileInfo().Mode())
 			if err != nil {
-				return err
+				return fmt.Errorf("opening target file %s: %w", target, err)
 			}
 			// #nosec G110 -- reading sidecar JSONs from trusted internal bundle
 			if _, err := io.Copy(f, tr); err != nil {
 				_ = f.Close()
-				return err
+				return fmt.Errorf("extracting file content for %s: %w", target, err)
 			}
 			if err := f.Close(); err != nil {
-				return err
+				return fmt.Errorf("closing target file %s: %w", target, err)
 			}
 		}
 	}
@@ -790,63 +790,6 @@ func (o *Orchestrator) ensureDiskHeadroom(ctx context.Context, zipsDir string, n
 			break
 		}
 	}
-}
-
-// extractJSONSidecars scans the zip file and extracts all .json files preserving relative paths into targetDir.
-func extractJSONSidecars(zipPath, targetDir string) (int, error) {
-	cleanZip := filepath.Clean(zipPath)
-	r, err := zip.OpenReader(cleanZip)
-	if err != nil {
-		return 0, fmt.Errorf("opening zip file %s: %w", cleanZip, err)
-	}
-	defer func() {
-		_ = r.Close()
-	}()
-
-	count := 0
-	cleanTarget := filepath.Clean(targetDir)
-
-	for _, f := range r.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(strings.ToLower(f.Name), ".json") {
-			continue
-		}
-		cleanName := filepath.Clean(f.Name)
-		if strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) {
-			continue // Prevent directory traversal
-		}
-		destPath := filepath.Join(cleanTarget, cleanName)
-		if !strings.HasPrefix(destPath, cleanTarget+string(filepath.Separator)) {
-			continue // Prevent zip slip
-		}
-		if err := os.MkdirAll(filepath.Dir(destPath), 0750); err != nil {
-			return count, fmt.Errorf("creating directory for %s: %w", destPath, err)
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return count, fmt.Errorf("reading file %s in zip: %w", f.Name, err)
-		}
-		// #nosec G304 -- destPath is verified to be within cleanTarget
-		out, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-		if err != nil {
-			_ = rc.Close()
-			return count, fmt.Errorf("creating destination file %s: %w", destPath, err)
-		}
-		// Protect against decompression bombs by limiting sidecar JSON copy to 50 MiB
-		const maxJSONBytes = 50 * 1024 * 1024
-		// #nosec G110 -- protected by LimitReader
-		_, cpErr := io.Copy(out, io.LimitReader(rc, maxJSONBytes))
-		_ = rc.Close()
-		_ = out.Close()
-		if cpErr != nil {
-			return count, fmt.Errorf("copying json content to %s: %w", destPath, cpErr)
-		}
-		count++
-	}
-	return count, nil
 }
 
 // extractJSONSidecarsToTarGz reads all .json files from the zip and packs them directly into an in-memory .tar.gz bundle.
