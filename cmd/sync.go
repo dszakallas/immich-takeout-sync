@@ -60,6 +60,9 @@ optionally soft-deletes the files in Google Drive, and maintains durable checkpo
 		if cmd.Flags().Changed("metrics-addr") {
 			cfg.MetricsAddr = metricsAddr
 		}
+		if credentialsFile != "" {
+			cfg.GoogleCredentialsFile = credentialsFile
+		}
 
 		ctx := cmd.Context()
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dszakallas/immich-takeout-sync/internal/config"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -28,6 +29,46 @@ var authCmd = &cobra.Command{
 	Short: "Google Drive authentication helpers",
 }
 
+type googleAppCredentials struct {
+	Type         string `json:"type"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	Installed    *struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	} `json:"installed"`
+	Web *struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	} `json:"web"`
+}
+
+func loadClientCredentials(path string) (string, string, error) {
+	cleaned := filepath.Clean(path)
+	// #nosec G304 -- path is user-specified or standard credential file path
+	data, err := os.ReadFile(cleaned)
+	if err != nil {
+		return "", "", err
+	}
+
+	var creds googleAppCredentials
+	if err := json.Unmarshal(data, &creds); err != nil {
+		return "", "", fmt.Errorf("parsing credentials file %s: %w", cleaned, err)
+	}
+
+	if creds.ClientID != "" && creds.ClientSecret != "" {
+		return creds.ClientID, creds.ClientSecret, nil
+	}
+	if creds.Installed != nil && creds.Installed.ClientID != "" && creds.Installed.ClientSecret != "" {
+		return creds.Installed.ClientID, creds.Installed.ClientSecret, nil
+	}
+	if creds.Web != nil && creds.Web.ClientID != "" && creds.Web.ClientSecret != "" {
+		return creds.Web.ClientID, creds.Web.ClientSecret, nil
+	}
+
+	return creds.ClientID, creds.ClientSecret, nil
+}
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Interactive OAuth2 login to generate refresh token for personal Google Drive",
@@ -35,7 +76,33 @@ var loginCmd = &cobra.Command{
 Use this file in Kubernetes Secret (or with SOPS) to authenticate takeout-sync with personal Google Drive.`,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if clientID == "" || clientSecret == "" {
-			return fmt.Errorf("--client-id and --client-secret are required (create a 'Desktop App' OAuth client in Google Cloud Console)")
+			candidateFiles := []string{
+				credentialsFile,
+				outputFile,
+				os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+				config.DefaultCredentialsFile,
+			}
+			for _, candidate := range candidateFiles {
+				if candidate == "" {
+					continue
+				}
+				id, secret, err := loadClientCredentials(candidate)
+				if err == nil {
+					if clientID == "" {
+						clientID = id
+					}
+					if clientSecret == "" {
+						clientSecret = secret
+					}
+					if clientID != "" && clientSecret != "" {
+						break
+					}
+				}
+			}
+		}
+
+		if clientID == "" || clientSecret == "" {
+			return fmt.Errorf("--client-id and --client-secret are required (create a 'Desktop App' OAuth client in Google Cloud Console or provide a credentials file)")
 		}
 
 		redirectURI := fmt.Sprintf("http://localhost:%d/oauth/callback", authPort)
@@ -105,6 +172,7 @@ Use this file in Kubernetes Secret (or with SOPS) to authenticate takeout-sync w
 		}
 
 		output := map[string]string{
+			"type":          "authorized_user",
 			"client_id":     clientID,
 			"client_secret": clientSecret,
 			"refresh_token": token.RefreshToken,

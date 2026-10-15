@@ -23,12 +23,15 @@ takeout-sync auth login --client-id="<CLIENT_ID>" --client-secret="<CLIENT_SECRE
 ```
 
 This launches a local listener, prompts you to sign in with Google, and writes the refresh token JSON configuration.
+If `google-oauth2-credentials.json` (or an existing credentials file specified by `-c` / `--credentials-file` or `-o`) already exists, `takeout-sync auth login` will automatically reuse the client ID and secret.
 
 ### Synchronization
 
 ```bash
 takeout-sync sync
 ```
+
+`takeout-sync sync` automatically reads `google-oauth2-credentials.json` if it exists in the working directory. You can also specify an explicit credentials file using the `--credentials-file` (`-c`) flag or the `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
 
 ### Environment variables
 
@@ -40,5 +43,5 @@ takeout-sync sync
 | `DBOS_DATABASE_URL` | Database connection URL supported by DBOS (e.g. SQLite, PostgreSQL) | `sqlite:/data/state.db` |
 | `SCRATCH_DIR` | Temporary download storage path | `/scratch` |
 | `GOOGLE_CREDENTIALS_JSON` | Service Account JSON or OAuth2 token JSON | - |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to credentials JSON | - |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to credentials JSON (defaults to `google-oauth2-credentials.json` if present) | - |
 | `DRY_RUN` | If `true`, simulates upload and trashing | `false` |

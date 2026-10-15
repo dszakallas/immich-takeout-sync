@@ -60,15 +60,26 @@ type Config struct {
 	DryRun bool
 }
 
+// DefaultCredentialsFile is the default credentials file written by auth login and read by takeout-sync.
+// #nosec G101 -- default credentials file name, not a secret
+const DefaultCredentialsFile = "google-oauth2-credentials.json"
+
 // LoadFromEnv loads configuration from environment variables with sensible defaults.
 func LoadFromEnv() (*Config, error) {
+	credsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credsFile == "" {
+		if _, err := os.Stat(DefaultCredentialsFile); err == nil {
+			credsFile = DefaultCredentialsFile
+		}
+	}
+
 	cfg := &Config{
 		GoogleDriveFolderID:   getEnv("GOOGLE_DRIVE_FOLDER_ID", "1B9YW3rbdnOjAjOqOXSJ-pj3tOsWFkOiRbSUyPkEiGfYpqOi0qCADmCwVTiVZEWNQISWkyWeb"),
 		DatabaseURL:           getEnv("DBOS_DATABASE_URL", "sqlite:/data/state.db"),
 		ScratchDir:            getEnv("SCRATCH_DIR", "/scratch"),
 		ImmichServerURL:       getEnv("IMMICH_SERVER_URL", "http://immich-server.apps.svc:2283"),
 		ImmichAPIKey:          os.Getenv("IMMICH_API_KEY"),
-		GoogleCredentialsFile: os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+		GoogleCredentialsFile: credsFile,
 		GoogleCredentialsJSON: os.Getenv("GOOGLE_CREDENTIALS_JSON"),
 		GoogleAccessToken:     os.Getenv("GOOGLE_ACCESS_TOKEN"),
 		GoogleClientID:        os.Getenv("GOOGLE_CLIENT_ID"),
