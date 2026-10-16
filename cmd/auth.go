@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dszakallas/immich-takeout-sync/internal/config"
@@ -43,17 +44,24 @@ type googleAppCredentials struct {
 	} `json:"web"`
 }
 
-func loadClientCredentials(path string) (string, string, error) {
-	cleaned := filepath.Clean(path)
-	// #nosec G304 -- path is user-specified or standard credential file path
-	data, err := os.ReadFile(cleaned)
-	if err != nil {
-		return "", "", err
+func loadClientCredentials(source string) (string, string, error) {
+	trimmed := strings.TrimSpace(source)
+	var data []byte
+	if strings.HasPrefix(trimmed, "{") {
+		data = []byte(trimmed)
+	} else {
+		cleaned := filepath.Clean(source)
+		// #nosec G304 -- path is user-specified or standard credential file path
+		readData, err := os.ReadFile(cleaned)
+		if err != nil {
+			return "", "", err
+		}
+		data = readData
 	}
 
 	var creds googleAppCredentials
 	if err := json.Unmarshal(data, &creds); err != nil {
-		return "", "", fmt.Errorf("parsing credentials file %s: %w", cleaned, err)
+		return "", "", fmt.Errorf("parsing credentials: %w", err)
 	}
 
 	if creds.ClientID != "" && creds.ClientSecret != "" {
@@ -77,7 +85,9 @@ Use this file in Kubernetes Secret (or with SOPS) to authenticate takeout-sync w
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if clientID == "" || clientSecret == "" {
 			candidateFiles := []string{
+				credentialsJSON,
 				credentialsFile,
+				os.Getenv("GOOGLE_CREDENTIALS_JSON"),
 				outputFile,
 				os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
 				config.DefaultCredentialsPath(),

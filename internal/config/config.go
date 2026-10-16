@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config contains runtime configuration for takeout-sync.
@@ -93,7 +94,14 @@ func DefaultCredentialsPath() string {
 // LoadFromEnv loads configuration from environment variables with sensible defaults.
 func LoadFromEnv() (*Config, error) {
 	credsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-	if credsFile == "" {
+	credsJSON := os.Getenv("GOOGLE_CREDENTIALS_JSON")
+
+	if credsJSON == "" && strings.HasPrefix(strings.TrimSpace(credsFile), "{") {
+		credsJSON = credsFile
+		credsFile = ""
+	}
+
+	if credsJSON == "" && credsFile == "" {
 		candidates := []string{
 			DefaultCredentialsPath(),
 			filepath.Join(XDGConfigHome(), "takeout-sync", DefaultCredentialsFileName),
@@ -118,7 +126,7 @@ func LoadFromEnv() (*Config, error) {
 		ImmichServerURL:       getEnv("IMMICH_SERVER_URL", "http://immich-server.apps.svc:2283"),
 		ImmichAPIKey:          os.Getenv("IMMICH_API_KEY"),
 		GoogleCredentialsFile: credsFile,
-		GoogleCredentialsJSON: os.Getenv("GOOGLE_CREDENTIALS_JSON"),
+		GoogleCredentialsJSON: credsJSON,
 		GoogleAccessToken:     os.Getenv("GOOGLE_ACCESS_TOKEN"),
 		GoogleClientID:        os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:    os.Getenv("GOOGLE_CLIENT_SECRET"),

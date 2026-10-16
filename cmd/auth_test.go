@@ -103,4 +103,16 @@ func TestLoadClientCredentials(t *testing.T) {
 			t.Errorf("expected error for nonexistent file, got nil")
 		}
 	})
+
+	t.Run("direct raw json string", func(t *testing.T) {
+		t.Parallel()
+		rawJSON := `{"client_id": "inline-id", "client_secret": "inline-secret"}`
+		id, secret, err := loadClientCredentials(rawJSON)
+		if err != nil {
+			t.Fatalf("loadClientCredentials() error = %v", err)
+		}
+		if id != "inline-id" || secret != "inline-secret" {
+			t.Errorf("got %q / %q, want inline-id / inline-secret", id, secret)
+		}
+	})
 }

@@ -31,7 +31,11 @@ If credentials already exist (in the default location or specified by `-c` / `--
 takeout-sync sync
 ```
 
-`takeout-sync sync` automatically reads `$XDG_CONFIG_HOME/immich-takeout-sync/creds.json` (or `~/.config/immich-takeout-sync/creds.json`) if it exists. You can also specify an explicit credentials file using the `--credentials-file` (`-c`) flag or the `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
+`takeout-sync sync` automatically reads `$XDG_CONFIG_HOME/immich-takeout-sync/creds.json` (or `~/.config/immich-takeout-sync/creds.json`) if it exists.
+You can also specify credentials directly on the command line using:
+- `--credentials-file` (`-c`): Path to a credentials JSON file or inline JSON string
+- `--credentials-json`: Raw JSON credentials string
+- `GOOGLE_APPLICATION_CREDENTIALS` / `GOOGLE_CREDENTIALS_JSON` environment variables
 
 ### Environment variables
 

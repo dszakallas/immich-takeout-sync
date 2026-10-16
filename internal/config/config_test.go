@@ -198,4 +198,49 @@ func TestLoadFromEnv_CredentialsFile(t *testing.T) {
 			t.Errorf("GoogleCredentialsFile = %q, want empty", cfg.GoogleCredentialsFile)
 		}
 	})
+
+	t.Run("raw JSON in GOOGLE_APPLICATION_CREDENTIALS maps to GoogleCredentialsJSON", func(t *testing.T) {
+		// #nosec G101 -- mock credentials JSON in test
+		rawJSON := `{"type": "service_account", "client_email": "test@example.com"}`
+		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", rawJSON)
+		_ = os.Unsetenv("GOOGLE_CREDENTIALS_JSON")
+
+		cfg, err := LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() unexpected error: %v", err)
+		}
+		if cfg.GoogleCredentialsJSON != rawJSON {
+			t.Errorf("GoogleCredentialsJSON = %q, want %q", cfg.GoogleCredentialsJSON, rawJSON)
+		}
+		if cfg.GoogleCredentialsFile != "" {
+			t.Errorf("GoogleCredentialsFile = %q, want empty", cfg.GoogleCredentialsFile)
+		}
+	})
+
+	t.Run("explicit GOOGLE_CREDENTIALS_JSON skips file candidate discovery", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", tmpDir)
+		defaultPath := filepath.Join(tmpDir, AppName, DefaultCredentialsFileName)
+		if err := os.MkdirAll(filepath.Dir(defaultPath), 0700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(defaultPath, []byte(`{}`), 0600); err != nil {
+			t.Fatalf("writing creds file: %v", err)
+		}
+
+		rawJSON := `{"type": "authorized_user"}`
+		t.Setenv("GOOGLE_CREDENTIALS_JSON", rawJSON)
+		_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+		cfg, err := LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() unexpected error: %v", err)
+		}
+		if cfg.GoogleCredentialsJSON != rawJSON {
+			t.Errorf("GoogleCredentialsJSON = %q, want %q", cfg.GoogleCredentialsJSON, rawJSON)
+		}
+		if cfg.GoogleCredentialsFile != "" {
+			t.Errorf("GoogleCredentialsFile = %q, want empty", cfg.GoogleCredentialsFile)
+		}
+	})
 }

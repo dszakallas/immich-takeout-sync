@@ -17,4 +17,9 @@ func TestCredentialsFileFlag(t *testing.T) {
 	if flag.Shorthand != "c" {
 		t.Errorf("shorthand = %q, want %q", flag.Shorthand, "c")
 	}
+
+	jsonFlag := rootCmd.PersistentFlags().Lookup("credentials-json")
+	if jsonFlag == nil {
+		t.Fatal("expected --credentials-json persistent flag to be registered on rootCmd")
+	}
 }
