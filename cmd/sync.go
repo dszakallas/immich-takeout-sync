@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/dszakallas/immich-takeout-sync/internal/config"
 	"github.com/dszakallas/immich-takeout-sync/internal/drive"
@@ -59,6 +60,15 @@ optionally soft-deletes the files in Google Drive, and maintains durable checkpo
 		}
 		if cmd.Flags().Changed("metrics-addr") {
 			cfg.MetricsAddr = metricsAddr
+		}
+		if credentialsJSON != "" {
+			cfg.GoogleCredentialsJSON = credentialsJSON
+		} else if credentialsFile != "" {
+			if strings.HasPrefix(strings.TrimSpace(credentialsFile), "{") {
+				cfg.GoogleCredentialsJSON = credentialsFile
+			} else {
+				cfg.GoogleCredentialsFile = credentialsFile
+			}
 		}
 
 		ctx := cmd.Context()

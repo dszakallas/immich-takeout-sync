@@ -12,8 +12,10 @@ import (
 )
 
 var (
-	logLevel  string
-	logFormat string
+	logLevel        string
+	logFormat       string
+	credentialsFile string
+	credentialsJSON string
 )
 
 var rootCmd = &cobra.Command{
@@ -67,6 +69,8 @@ func setupLogger(out io.Writer, levelStr string, formatStr string) error {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "json", "Log output format (json, text)")
+	rootCmd.PersistentFlags().StringVarP(&credentialsFile, "credentials-file", "c", "", "Path to Google credentials JSON file (or raw JSON content)")
+	rootCmd.PersistentFlags().StringVar(&credentialsJSON, "credentials-json", "", "Google credentials JSON string")
 
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(authCmd)

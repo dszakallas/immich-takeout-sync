@@ -4,6 +4,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 // Config contains runtime configuration for takeout-sync.
@@ -60,16 +62,71 @@ type Config struct {
 	DryRun bool
 }
 
+// AppName is the application identifier used for XDG configuration paths and workflow identification.
+const AppName = "immich-takeout-sync"
+
+// DefaultCredentialsFileName is the standard file name for saved OAuth2 credentials.
+// #nosec G101 -- default credentials file name, not a secret
+const DefaultCredentialsFileName = "creds.json"
+
+// XDGConfigHome returns the base XDG configuration directory ($XDG_CONFIG_HOME or ~/.config).
+func XDGConfigHome() string {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".config")
+}
+
+// DefaultCredentialsPath returns the standard path to the credentials file:
+// xdg_config_home/app_name/creds.json.
+func DefaultCredentialsPath() string {
+	base := XDGConfigHome()
+	if base == "" {
+		return DefaultCredentialsFileName
+	}
+	return filepath.Join(base, AppName, DefaultCredentialsFileName)
+}
+
 // LoadFromEnv loads configuration from environment variables with sensible defaults.
 func LoadFromEnv() (*Config, error) {
+	credsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	credsJSON := os.Getenv("GOOGLE_CREDENTIALS_JSON")
+
+	if credsJSON == "" && strings.HasPrefix(strings.TrimSpace(credsFile), "{") {
+		credsJSON = credsFile
+		credsFile = ""
+	}
+
+	if credsJSON == "" && credsFile == "" {
+		candidates := []string{
+			DefaultCredentialsPath(),
+			filepath.Join(XDGConfigHome(), "takeout-sync", DefaultCredentialsFileName),
+			"google-oauth2-credentials.json",
+			"creds.json",
+		}
+		for _, cand := range candidates {
+			if cand == "" {
+				continue
+			}
+			if _, err := os.Stat(cand); err == nil {
+				credsFile = cand
+				break
+			}
+		}
+	}
+
 	cfg := &Config{
 		GoogleDriveFolderID:   getEnv("GOOGLE_DRIVE_FOLDER_ID", "1B9YW3rbdnOjAjOqOXSJ-pj3tOsWFkOiRbSUyPkEiGfYpqOi0qCADmCwVTiVZEWNQISWkyWeb"),
 		DatabaseURL:           getEnv("DBOS_DATABASE_URL", "sqlite:/data/state.db"),
 		ScratchDir:            getEnv("SCRATCH_DIR", "/scratch"),
 		ImmichServerURL:       getEnv("IMMICH_SERVER_URL", "http://immich-server.apps.svc:2283"),
 		ImmichAPIKey:          os.Getenv("IMMICH_API_KEY"),
-		GoogleCredentialsFile: os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
-		GoogleCredentialsJSON: os.Getenv("GOOGLE_CREDENTIALS_JSON"),
+		GoogleCredentialsFile: credsFile,
+		GoogleCredentialsJSON: credsJSON,
 		GoogleAccessToken:     os.Getenv("GOOGLE_ACCESS_TOKEN"),
 		GoogleClientID:        os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:    os.Getenv("GOOGLE_CLIENT_SECRET"),
