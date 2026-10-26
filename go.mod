@@ -3,7 +3,7 @@ module github.com/dszakallas/immich-takeout-sync
 go 1.26.0
 
 require (
-	github.com/dbos-inc/dbos-transact-golang v1.3.0
+	github.com/dbos-inc/dbos-transact-golang v1.7.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/spf13/cobra v1.10.2
