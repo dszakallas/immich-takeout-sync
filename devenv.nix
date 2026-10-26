@@ -8,6 +8,7 @@
     pkgs.immich-go
     pkgs.curl
     pkgs.jq
+    pkgs.nix-update
   ];
 
   scripts.immich-takeout-sync.exec = ''
@@ -16,11 +17,21 @@
   scripts.takeout-sync.exec = ''
     exec immich-takeout-sync "$@"
   '';
+  scripts.update-vendor-hash.exec = ''
+    exec nix-update --flake --version=skip immich-takeout-sync "$@"
+  '';
 
   pre-commit.hooks = {
     gofmt.enable = true;
     govet.enable = true;
     golangci-lint.enable = true;
+    update-vendor-hash = {
+      enable = true;
+      name = "update-vendor-hash";
+      entry = "${pkgs.nix-update}/bin/nix-update --flake --version=skip immich-takeout-sync";
+      files = "go\\.(mod|sum)$";
+      pass_filenames = false;
+    };
   };
 
   enterTest = ''
