@@ -4,12 +4,13 @@ Automated pipeline for synchronizing Google Photos Takeout archives from Google 
 
 ## Features
 
-- **Google Drive polling**: Discovers Takeout exports in a designated Google Drive folder.
+- **Google Drive**: Discovers Takeout exports in a designated Google Drive folder.
 - **Chronological batching**: Handles multi-part archives and processes full exports followed by monthly increments in order.
-- **Granular durable checkpointing**: Built with DBOS Transact Go with per-part step granularity, transactional database updates, and durable metadata sidecar bundling for seamless resumption across process or container restarts.
+- **Incremental processing**: Suitable for running on a cron schedule to discover and process new batches as they appear without reprocessing old batches.
+- **Granular durable checkpointing**: Built with DBOS Transact Go with per-part step granularity, transactional database updates, and durable metadata sidecar bundling for seamless resumption across process or container restarts & crashes mid-import.
 - **Out-of-process ingestion**: Runs `immich-go upload from-google-photos` for metadata matching, album syncing, and duplicate detection.
-- **Soft-delete**: Moves processed archive files in Google Drive to the trash.
-- **Bounded scratch storage**: Processes strictly one batch at a time to prevent scratch disk exhaustion during multi-month backfills.
+- **Bounded scratch storage**: Can operate with scratch space that can hold at least the largest part file + metadata (although can result in multiple downloads / part)
+- **Soft-delete**: Optionally moves processed archive files in Google Drive to the trash.
 - **Personal Google Drive support**: Supports both Service Account credentials and OAuth2 refresh tokens.
 
 ## Commands
