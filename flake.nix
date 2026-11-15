@@ -22,7 +22,7 @@
           version = "latest";
           src = pkgs.lib.cleanSource ./.;
 
-          vendorHash = "sha256-iF3380unoe8rpuztYhYpKtT/PjrLih7OgkoUCmEni4k=";
+          vendorHash = "sha256-GfVBAV2+Jbn5HXfIFOkx9zF92uDgdHKCxHJKFeg6Hv4=";
 
           ldflags = [
             "-s"
